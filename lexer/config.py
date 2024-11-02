@@ -10,6 +10,12 @@ signs = [
     ".", ",", ":", ";", "=", "*", "+", "-", "/", "^", "(", ")", "<", ">", "!", "{", "}", "_"
 ]
 
+type_to_token = {
+    "Int": "intnum",
+    "Float": "floatnum",
+    "Bool": "boolval"
+}
+
 lexer_config = {
     "token_table": {
         "true": "boolval", "false": "boolval",

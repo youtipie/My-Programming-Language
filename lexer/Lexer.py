@@ -14,7 +14,7 @@ class Lexer:
 
     _table_of_symbols: list = []
     _table_of_identifiers: list = []
-    _table_of_constants: list = []
+    _table_of_constants: dict = {}
 
     def __init__(self, token_table: dict, tok_state_table: dict, stf: dict, F: list, F_star: list, F_error: list,
                  initial_state: int = 0):
@@ -34,7 +34,7 @@ class Lexer:
         self._current_lexeme = ""
         self._table_of_symbols = []
         self._table_of_identifiers = []
-        self._table_of_constants = []
+        self._table_of_constants = {}
 
         while self._current_position < len(self._source_code) - 1:
             next_char = self._get_next_char()
@@ -61,7 +61,7 @@ class Lexer:
             print_table(self._table_of_symbols)
             print(f"Table of identifiers: {self._table_of_identifiers}")
             print(f"Table of constants:")
-            print_table(self._table_of_constants)
+            print(self._table_of_constants)
 
         return self._table_of_symbols, self._table_of_identifiers, self._table_of_constants
 
@@ -91,12 +91,9 @@ class Lexer:
                 if self._current_lexeme[-1] == ".":
                     self._current_lexeme = self._current_lexeme[:-1]
                     self._put_char_back()
-                if self._find_index_of_constant(self._current_lexeme) is None:
-                    self._table_of_constants.append({
-                        "type": token,
-                        "value": self._current_lexeme
-                    })
-                index = self._find_index_of_constant(self._current_lexeme)
+                if self._current_lexeme not in self._table_of_constants:
+                    self._table_of_constants[self._current_lexeme] = token
+                index = list(self._table_of_constants.keys()).index(self._current_lexeme)
 
             self._add_to_table_of_symbols(token, index)
             self._put_char_back()
@@ -150,12 +147,6 @@ class Lexer:
         if lexeme in self._token_table:
             return self._token_table[lexeme]
         return self._tok_state_table[state]
-
-    def _find_index_of_constant(self, value):
-        temp_list = [item["value"] for item in self._table_of_constants]
-        if value in temp_list:
-            return temp_list.index(value)
-        return None
 
     def _add_to_table_of_symbols(self, token, index):
         self._table_of_symbols.append({

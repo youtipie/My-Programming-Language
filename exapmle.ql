@@ -2,9 +2,9 @@ var n1 = 1, n2 = 2, n3 = 3;
 let e1: Int, e2: Bool, e3: Float
 let 😊🤢中文: Int
 // Reading const below
-let read = readLine()
+let read: Int = readLine()
 var empty: Int // Empty value var
-empty = 10.5
+empty = 10
 if empty == 10 {
     print(empty)
 } else if empty != read {
