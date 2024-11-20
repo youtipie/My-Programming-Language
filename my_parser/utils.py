@@ -1,4 +1,8 @@
+from functools import wraps
+
+
 def with_indent(func):
+    @wraps(func)
     def wrapper(self, *args, **kwargs):
         self._next_indent()
         try:

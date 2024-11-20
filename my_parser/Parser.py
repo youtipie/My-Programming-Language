@@ -2,6 +2,7 @@ from lexer.config import type_to_token
 from my_parser.exceptions import ParserError, UnexpectedToken, UnexpectedStatement, IllegalExpression, \
     IllegalDeclaration, IllegalIfStatement, RedeclarationError, IllegalType, UnknownType, IllegalBoolExpression, \
     IllegalReadLine
+from my_parser.savePostfixCode import savePostfixCode
 
 from my_parser.utils import with_indent
 
@@ -10,17 +11,27 @@ class Parser:
     def __init__(self):
         self._current_row = 0
         self._current_indent = 1
+        self._table_of_vars = {}
         self._table_of_symbols = None
         self._table_of_constants = None
+        self._table_of_labels = {}
         self._scope_stack = []
+        self._postfix_code = []
 
-    def analyze(self, table_of_symbols, table_of_constants):
+    def analyze(self, table_of_symbols, table_of_constants, result_filename):
         self._current_row = 0
         self._current_indent = 1
         self._table_of_symbols = table_of_symbols
         self._table_of_constants = table_of_constants
+        self._table_of_labels = {}
         self._scope_stack = [{}]
+        self._postfix_code = []
+        self._table_of_vars = {}
         self._parse_statement_list()
+
+        # Save to .postfix
+        savePostfixCode(result_filename.split(".")[0], self._table_of_vars,
+                        self._table_of_labels, self._table_of_constants, self._postfix_code)
 
     def _enter_scope(self):
         self._scope_stack.append({})
@@ -34,7 +45,10 @@ class Parser:
         current_scope = self._scope_stack[-1]
         if ident in current_scope:
             raise RedeclarationError(line, ident)
-        current_scope[ident] = {"var_type": var_type, "is_initialized": is_initialized}
+
+        new_name = f"{ident}{sum(1 for d in self._table_of_vars if ident in d)}"
+        self._table_of_vars[new_name] = var_type
+        current_scope[ident] = {"var_type": var_type, "is_initialized": is_initialized, "stack_name": new_name}
         self._log(f"Added variable '{ident}' to current scope:", current_scope)
 
     def _find_variable(self, ident):
@@ -51,6 +65,35 @@ class Parser:
         if not self._find_variable(ident)["is_initialized"]:
             raise ValueError(f"Cannot use not initialized variable '{ident}'!")
 
+    def _create_label(self):
+        lexeme = "m" + str(len(self._table_of_labels) + 1)
+        val = self._table_of_labels.get(lexeme)
+
+        if val is None:
+            self._table_of_labels[lexeme] = "val_undef"
+            tok = "label"
+        else:
+            raise ValueError("Labels conflict")
+
+        return lexeme, tok
+
+    def _init_label(self, label):
+        lexeme, token = label
+        self._table_of_labels[lexeme] = len(self._postfix_code)
+        self._postfix_code.append(label)
+        self._postfix_code.append((":", "colon"))
+
+    def _add_JF(self, label):
+        self._add_to_postfix(*label)
+        self._add_to_postfix("JF", "jf")
+
+    def _add_JMP(self, label):
+        self._add_to_postfix(*label)
+        self._add_to_postfix("JMP", "jump")
+
+    def _add_to_postfix(self, lexeme, token):
+        self._postfix_code.append((lexeme, token))
+
     def _get_ident_type(self, ident):
         return self._find_variable(ident)["var_type"]
 
@@ -61,11 +104,11 @@ class Parser:
         is_num = l_type in ("intnum", "floatnum") and r_type in ("intnum", "floatnum")
         is_bool = l_type == "boolval" and r_type == "boolval"
 
-        if is_num and op in "/":
+        if is_num and op in "/^":
             return "floatnum"
         elif "floatnum" in (l_type, r_type) and op in "+-*^":
             return "floatnum"
-        elif is_num and op in "+-*^":
+        elif is_num and op in "+-*":
             return l_type
         if is_bool and op in ("==", "!="):
             return "boolval"
@@ -221,22 +264,33 @@ class Parser:
             is_valid = True
             is_initialized = True
             self._parse_token("=", "assign_op")
+            self._add_variable(ident, expected_type, is_initialized, current_line)
 
             current_line, current_lexeme, current_token, _ = self._next_symbol(False)
             if (current_lexeme, current_token) == ("readLine", "keyword"):
                 if not has_type:
                     raise IllegalReadLine(current_line)
+                stack_name = self._find_variable(ident)["stack_name"]
+                self._add_to_postfix(stack_name, "l-val")
                 self._parse_inp()
             else:
+                stack_name = self._find_variable(ident)["stack_name"]
+                self._add_to_postfix(stack_name, "l-val")
                 expression_type = self._parse_expression()
+                self._add_to_postfix("=", "assign_op")
+
+                # Rewriting type, because initially it is None
+                self._table_of_vars[stack_name] = expression_type
+                self._scope_stack[-1][ident]["var_type"] = expression_type
 
         if not is_valid:
             raise IllegalDeclaration(current_line)
 
-        var_type = expected_type if has_type else expression_type
         if expression_type and expected_type and expected_type != expression_type:
             raise IllegalType(current_line, expected_type, expression_type)
-        self._add_variable(ident, var_type, is_initialized, current_line)
+
+        if not is_initialized:
+            self._add_variable(ident, expected_type, is_initialized, current_line)
         return True
 
     @with_indent
@@ -253,6 +307,8 @@ class Parser:
     def _parse_assign(self):
         self._log("parse_assign:")
         ident = self._parse_token_type("id")
+        stack_name = self._find_variable(ident)["stack_name"]
+        self._add_to_postfix(stack_name, "l-val")
         current_line, _, _ = self._parse_token("=", "assign_op")
 
         current_line, current_lexeme, current_token, _ = self._next_symbol(False)
@@ -260,6 +316,7 @@ class Parser:
             self._parse_inp()
         else:
             var_type = self._parse_expression()
+            self._add_to_postfix("=", "assign_op")
             expected_type = self._get_ident_type(ident)
             if expected_type != var_type:
                 raise IllegalType(current_line, expected_type, var_type)
@@ -271,11 +328,12 @@ class Parser:
         self._parse_token("readLine", "keyword")
         self._parse_token("(", "brackets_op")
         self._parse_token(")", "brackets_op")
+        self._add_to_postfix("IN", "readline")
         return True
 
     # IfStatement = 'if' Expression '{' StatementList '}' [IfTail].
     @with_indent
-    def _parse_if(self):
+    def _parse_if(self, leave=None, is_parent=True):
         self._log("parse_if:")
         current_line, _, _ = self._parse_token("if", "keyword")
         actual_type = self._parse_expression()
@@ -283,7 +341,15 @@ class Parser:
             raise IllegalType(current_line, "boolval", actual_type)
         self._parse_token("{", "brackets_op")
         self._enter_scope()
+
+        next_if = self._create_label()
+        if leave is None:
+            leave = self._create_label()
+
+        self._add_JF(next_if)
         self._parse_statement_list()
+        self._add_JMP(leave)
+
         self._parse_token("}", "brackets_op")
         self._exit_scope()
         if self._current_row < len(self._table_of_symbols):
@@ -291,22 +357,31 @@ class Parser:
             if (current_lexeme, current_token) == ("else", "keyword"):
                 self._parse_token("else", "keyword")
                 self._enter_scope()
-                self._parse_if_tail()
+                self._parse_if_tail(next_if, leave)
                 self._exit_scope()
+            else:
+                self._init_label(next_if)
+
+        if is_parent:
+            self._init_label(leave)
         return True
 
     # IfTail = 'else' ('{' StatementList '}' | IfStatement).
     @with_indent
-    def _parse_if_tail(self):
+    def _parse_if_tail(self, next_if, leave):
         self._log("parse_if_tail:")
 
+        self._init_label(next_if)
         current_line, current_lexeme, current_token, _ = self._next_symbol(False)
         if (current_lexeme, current_token) == ("{", "brackets_op"):
             self._parse_token("{", "brackets_op")
+
             self._parse_statement_list()
+            self._add_JMP(leave)
+
             self._parse_token("}", "brackets_op")
         elif (current_lexeme, current_token) == ("if", "keyword"):
-            self._parse_if()
+            self._parse_if(leave, is_parent=False)
         else:
             raise IllegalIfStatement(current_line, current_lexeme, current_token)
 
@@ -319,12 +394,24 @@ class Parser:
 
         current_line, _, _ = self._parse_token("for", "keyword")
         self._enter_scope()
+        condition = self._create_label()
+        action = self._create_label()
+        increment = self._create_label()
+        leave = self._create_label()
+
         ident = self._parse_token_type("id")
         self._add_variable(ident, "intnum", True, current_line)
+        stack_name = self._find_variable(ident)["stack_name"]
+
         self._parse_token("in", "keyword")
-        self._parse_range_expression()
+        self._parse_range_expression(stack_name, condition, action, increment, leave)
         self._parse_token("{", "brackets_op")
+
+        self._init_label(action)
         self._parse_statement_list()
+        self._add_JMP(increment)
+
+        self._init_label(leave)
         self._parse_token("}", "brackets_op")
         self._exit_scope()
 
@@ -332,9 +419,14 @@ class Parser:
 
     # RangeExpr = Expression RangeOp Expression.
     @with_indent
-    def _parse_range_expression(self):
+    def _parse_range_expression(self, ident_name, condition, action, increment, leave):
         self._log("parse_range_expression:")
+
+        self._add_to_postfix(ident_name, "l-val")
         l_type = self._parse_expression()
+        self._add_to_postfix("=", "assign_op")
+        # self._add_JMP(action)
+        self._add_JMP(condition)
 
         current_line, current_lexeme, current_token, _ = self._next_symbol()
         if current_lexeme in ["...", "..<"] and current_token == "range_op":
@@ -342,7 +434,24 @@ class Parser:
         else:
             raise UnexpectedToken(current_line, current_lexeme, current_token, "... | ..<", "range_op")
 
+        self._init_label(condition)
+        self._add_to_postfix(ident_name, "r-val")
         r_type = self._parse_expression()
+        is_strict = current_lexeme == "..."
+        self._add_to_postfix("<=" if is_strict else "<", "rel_op")
+
+        self._add_JF(leave)
+        self._add_JMP(action)
+
+        # In range we always increment by +1
+        self._init_label(increment)
+        self._add_to_postfix(ident_name, "l-val")
+        self._add_to_postfix(ident_name, "r-val")
+        self._add_to_postfix("1", "intnum")
+        self._add_to_postfix("+", "add_op")
+        self._add_to_postfix("=", "assign_op")
+        self._add_JMP(condition)
+
         if l_type != "intnum" or r_type != "intnum":
             actual_type = l_type if l_type != "intnum" else r_type
             raise IllegalType(current_line, "intnum", actual_type)
@@ -354,12 +463,23 @@ class Parser:
         self._log("parse_while:")
 
         current_line, _, _ = self._parse_token("while", "keyword")
+
+        condition = self._create_label()
+        leave = self._create_label()
+
+        self._init_label(condition)
         actual_type = self._parse_expression()
+
         if actual_type != "boolval":
             raise IllegalType(current_line, "boolval", actual_type)
         self._parse_token("{", "brackets_op")
         self._enter_scope()
+
+        self._add_JF(leave)
         self._parse_statement_list()
+        self._add_JMP(condition)
+
+        self._init_label(leave)
         self._parse_token("}", "brackets_op")
         self._exit_scope()
 
@@ -373,12 +493,14 @@ class Parser:
         self._parse_token("print", "keyword")
         self._parse_token("(", "brackets_op")
         self._parse_expression()
+        self._add_to_postfix('OUT', 'print')
 
         while True:
             current_line, current_lexeme, current_token, _ = self._next_symbol(False)
             if (current_lexeme, current_token) == (",", "punct"):
                 self._parse_token(",", "punct")
                 self._parse_expression()
+                self._add_to_postfix('OUT', 'print')
             else:
                 break
 
@@ -399,6 +521,7 @@ class Parser:
                 self._log(f"line {current_line} token: {(current_lexeme, current_token)}")
                 self._next_symbol()
                 arithm_type = self._parse_arithm_expression()
+                self._add_to_postfix(current_lexeme, current_token)
                 result_type = self._get_op_type(result_type, current_lexeme, arithm_type)
             else:
                 break
@@ -428,10 +551,13 @@ class Parser:
                 self._next_symbol()
                 self._log(f"line {current_line} token: {(current_lexeme, current_token)}")
                 term_type = self._parse_term()
+                self._add_to_postfix(current_lexeme, current_token)
                 result_type = self._get_op_type(result_type, current_lexeme, term_type)
             else:
                 break
 
+        if unary_applied:
+            self._add_to_postfix('NEG', 'add_op')
         return result_type
 
     # Term = Exponent { '*' | '/' Exponent }.
@@ -453,6 +579,7 @@ class Parser:
                 current_line, current_lexeme, current_token, _ = self._next_symbol()
                 self._log(f"line {current_line} token: {(current_lexeme, current_token)}")
                 exponent_type = self._parse_exponent()
+                self._add_to_postfix(current_lexeme, current_token)
                 result_type = self._get_op_type(result_type, current_lexeme, exponent_type)
             else:
                 break
@@ -464,6 +591,7 @@ class Parser:
         self._log("parse_exponent:")
 
         result_type = self._parse_factor()
+        op_stack = []
 
         while True:
             current_line, current_lexeme, current_token, _ = self._next_symbol(False)
@@ -471,8 +599,11 @@ class Parser:
                 self._log(f"line {current_line} token: {(current_lexeme, current_token)}")
                 self._next_symbol()
                 factor_type = self._parse_factor()
+                op_stack.append((current_lexeme, current_token))
                 result_type = self._get_op_type(result_type, current_lexeme, factor_type)
             else:
+                for op in op_stack:
+                    self._postfix_code.append(op)
                 break
         return result_type
 
@@ -488,6 +619,11 @@ class Parser:
         if current_token in ('intnum', "floatnum", "boolval", "id"):
             self._log(f"line {current_line} token: {(current_lexeme, current_token)}")
             self._next_symbol()
+            if current_token == "id":
+                stack_name = self._find_variable(current_lexeme)["stack_name"]
+                self._add_to_postfix(stack_name, "r-val")
+            else:
+                self._add_to_postfix(current_lexeme, current_token)
 
             if current_token == "id":
                 self._check_is_initialized(current_lexeme)

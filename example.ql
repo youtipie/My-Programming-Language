@@ -4,7 +4,7 @@ let 😊🤢中文: Int
 // Reading const below
 let read: Int = readLine()
 var empty: Int // Empty value var
-empty = 10
+empty = 1
 if empty == 10 {
     print(empty)
 } else if empty != read {
@@ -15,7 +15,7 @@ if empty == 10 {
 	b = false
 	// Lets find read
 	while b != true {
-		for i in 51..<60 {
+		for i in 0..<100 {
 			if i == read {
 				b = true
 			}
