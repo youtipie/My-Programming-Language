@@ -2,52 +2,21 @@
 .version: 0.2
 
 .vars(
-   flag0 boolval 
-   x0 intnum 
 )
 
 .labels(
-   m1 3 
-   m2 28 
-   m3 22 
-   m4 24 
 )
 
 .constants(
-   true boolval 
-   0 intnum 
-   false boolval 
+   10 intnum 
+   5 intnum 
 )
 
 .code(
-   flag0 l-val 
-   true boolval 
-   = assign_op 
-   m1 label 
-   : colon 
-   flag0 r-val 
-   true boolval 
-   == rel_op 
-   m2 label 
-   JF jf 
-   x0 l-val 
-   IN readline 
-   x0 r-val 
-   0 intnum 
-   == rel_op 
-   m3 label 
-   JF jf 
-   flag0 l-val 
-   false boolval 
-   = assign_op 
-   m4 label 
-   JMP jump 
-   m3 label 
-   : colon 
-   m4 label 
-   : colon 
-   m1 label 
-   JMP jump 
-   m2 label 
-   : colon 
+   10 intnum 
+   NEG add_op 
+   5 intnum 
+   + add_op 
+   NEG add_op 
+   OUT print 
 )

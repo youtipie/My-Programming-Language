@@ -542,6 +542,8 @@ class Parser:
             self._log(f"line {current_line} unary operator: {(current_lexeme, current_token)}")
 
         result_type = self._parse_term()
+        if unary_applied:
+            self._add_to_postfix('NEG', 'add_op')
         if unary_applied and result_type == "boolval":
             raise IllegalType(current_line, ("intnum", "float"), type_to_token["Bool"])
 
@@ -556,8 +558,6 @@ class Parser:
             else:
                 break
 
-        if unary_applied:
-            self._add_to_postfix('NEG', 'add_op')
         return result_type
 
     # Term = Exponent { '*' | '/' Exponent }.
