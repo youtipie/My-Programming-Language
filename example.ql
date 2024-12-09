@@ -23,6 +23,9 @@ if empty == 10 {
 	}
 	var temp = 10 * 2 + (3 / (20 + read))^read // pointless calculations
 	print(temp)
+	print(2^2^3)
+	print((2^2)^3)
+	print(2^(2^3))
 	for _ in 0...1 {
 		// pointless loop
 	}

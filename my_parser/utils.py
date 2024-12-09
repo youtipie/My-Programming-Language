@@ -12,3 +12,7 @@ def with_indent(func):
             self._prev_indent()
 
     return wrapper
+
+
+def escape_unicode(x):
+    return x.encode('unicode_escape').decode().replace('\\', '')

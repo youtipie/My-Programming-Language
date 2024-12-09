@@ -3,8 +3,7 @@ from my_parser.exceptions import ParserError, UnexpectedToken, UnexpectedStateme
     IllegalDeclaration, IllegalIfStatement, RedeclarationError, IllegalType, UnknownType, IllegalBoolExpression, \
     IllegalReadLine
 from my_parser.savePostfixCode import savePostfixCode
-
-from my_parser.utils import with_indent
+from my_parser.utils import with_indent, escape_unicode
 
 
 class Parser:
@@ -32,6 +31,10 @@ class Parser:
         # Save to .postfix
         savePostfixCode(result_filename.split(".")[0], self._table_of_vars,
                         self._table_of_labels, self._table_of_constants, self._postfix_code)
+        return (
+            {escape_unicode(key): escape_unicode(value) for key, value in self._table_of_vars.items()},
+            [(escape_unicode(lexeme), escape_unicode(token)) for lexeme, token in self._postfix_code]
+        )
 
     def _enter_scope(self):
         self._scope_stack.append({})
@@ -104,11 +107,11 @@ class Parser:
         is_num = l_type in ("intnum", "floatnum") and r_type in ("intnum", "floatnum")
         is_bool = l_type == "boolval" and r_type == "boolval"
 
-        if is_num and op in "/^":
+        if is_num and op in "*/^":
             return "floatnum"
-        elif "floatnum" in (l_type, r_type) and op in "+-*^":
+        elif "floatnum" in (l_type, r_type) and op in "+-":
             return "floatnum"
-        elif is_num and op in "+-*":
+        elif is_num and op in "+-":
             return l_type
         if is_bool and op in ("==", "!="):
             return "boolval"
@@ -361,6 +364,8 @@ class Parser:
                 self._exit_scope()
             else:
                 self._init_label(next_if)
+        else:
+            self._init_label(next_if)
 
         if is_parent:
             self._init_label(leave)
